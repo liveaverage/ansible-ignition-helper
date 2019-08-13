@@ -1,0 +1,60 @@
+cluster_name: bm
+domain: shifti.us
+base_domain: int.shifti.us
+
+pref_bootstrap: bootstrap
+pref_control_plane: master
+pref_compute: worker
+
+hosts_loadbalancer:
+  - ip: 192.168.1.81
+    mac: "7d:fc:40:e7:a2:58"
+    index: 0
+hosts_bootstrap:
+  - ip: 192.168.1.42
+    mac: "36:8b:52:bb:ee:04"
+    index: 0
+hosts_control_plane:
+  - ip: 192.168.1.43
+    mac: "c2:25:f2:e3:30:f4"
+    index: 0
+  - ip: 192.168.1.44
+    mac: "c8:6c:cd:b1:53:7c"
+    index: 1
+  - ip: 192.168.1.45
+    mac: "80:27:97:f2:da:fc"
+    index: 2
+hosts_compute:
+  - ip: 192.168.1.46
+    mac: "c4:55:94:a8:ea:1b"
+    index: 0
+  - ip: 192.168.1.47
+    mac: "c4:65:be:52:56:02"
+    index: 1
+dns_state: present
+ign_net_mask: 255.255.255.0
+ign_net_prefix: 24
+ign_net_gw: 192.168.1.1
+ign_net_dns: 192.168.1.1
+ign_profile_initrd: '/assets/rhcos-4.1.0-x86_64-installer-initramfs.img'
+ign_profile_kernel: '/assets/rhcos-4.1.0-x86_64-installer-kernel'
+ign_image: 'http://cobbler.gxr.me:8080/assets/rhcos-4.1.0-x86_64-metal-bios.raw.gz'
+ign_url: 'http://cobbler.gxr.me:8080/ignition?mac=${mac:hexhyp}'
+
+lb_port_api: 6444
+lb_port_machineconfig: 22624
+lb_port_apps_http: 9080
+lb_port_apps_https: 9443
+
+openshift_install_host: localhost
+
+esxi_username: "{{ lookup('env', 'VMWARE_USER') }}"
+esxi_password: "{{ lookup('env', 'VMWARE_PASSWORD') }}"
+esxi_hostname: "vcsa.gxr.me"
+esxi_net: "VM Network"
+esxi_target_hostname: "esx2.gxr.me"
+esxi_datacenter: "GXR"
+esxi_datastore: "esx2_vms_nvme1"
+
+sshkey: "{{ lookup('file', '~/.ssh/id_rsa.pub') }}"
+pullsecret: 'inserthere'

@@ -1,0 +1,24 @@
+{
+"id": "{{ item }}",
+"name": "OCP4-{{ item }}",
+"ignition_id": "{{ item }}.yaml",
+"boot": {
+    "kernel": "{{ ign_profile_kernel }}",
+    "initrd": [
+      "{{ ign_profile_initrd }}"
+      ],
+{% raw %}
+    "args": [
+      "ip=dhcp",
+      "rd.neednet=1",
+      "console=tty0",
+      "console=ttyS0",
+      "coreos.inst=yes",
+      "coreos.inst.install_dev=sda",
+{% endraw %}
+      "coreos.inst.image_url={{ ign_image }}",
+      "coreos.inst.ignition_url={{ ign_url }}"
+      ]
+    }
+}
+

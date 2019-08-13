@@ -1,0 +1,281 @@
+---
+- name: Prepare OpenShift 4 Ignition and Install Files
+  hosts: all
+  gather_facts: no
+  tasks:
+  - name: Include ignition cluster vars
+    include_vars:
+      file: "vars/cluster_ignition_{{ clustertype | default('bm') }}.yml"
+
+  - name: Render profile templates
+    template:
+      src: "ignition.profile.json.j2"
+      dest: "/var/lib/matchbox/profiles/{{ item }}.json"
+    loop:
+      - bootstrap
+      - worker
+      - master
+
+  - name: Render matchbox bootstrap group templates
+    template:
+      src: bootstrap.json.j2
+      dest: "/var/lib/matchbox/groups/{{ cluster_name }}.{{ base_domain }}.{{ pref_bootstrap }}-{{ item.index }}.json"
+    loop: "{{ hosts_bootstrap }}"
+
+  - name: Render matchbox master group templates
+    template:
+      src: master.json.j2
+      dest: "/var/lib/matchbox/groups/{{ cluster_name }}.{{ base_domain }}.{{ pref_control_plane }}-{{ item.index }}.json"
+    loop: "{{ hosts_control_plane }}"
+
+  - name: Render matchbox worker group templates
+    template:
+      src: compute.json.j2
+      dest: "/var/lib/matchbox/groups/{{ cluster_name }}.{{ base_domain }}.{{ pref_compute }}-{{ item.index }}.json"
+    loop: "{{ hosts_compute }}"
+
+  - name: Create backend and frontend definitions for HAproxy
+    blockinfile:
+      block: "{{ lookup('template', 'templates/haproxy.j2') }}"
+      dest: /etc/haproxy/haproxy.cfg
+      marker: "## {mark} OCP4 Cluster {{ cluster_name }} ##"
+      insertafter: EOF
+      state: "{{ lb_block_state | default('present') }}"
+
+  - name: Force removal of local OpenShift Installation directory to clear contents
+    file:
+      path: "/tmp/ocp4-install-{{ cluster_name }}"
+      state: absent
+    delegate_to: "{{ openshift_install_host }}"
+
+  - name: Create local OpenShift Installation directory
+    file: 
+      path: "/tmp/ocp4-install-{{ cluster_name }}"
+      state: directory
+    delegate_to: "{{ openshift_install_host }}"
+
+  - name: Render install-config.yaml
+    template:
+      src: install-config-baremetal.yaml.j2
+      dest: "/tmp/ocp4-install-{{ cluster_name }}/install-config.yaml"
+    delegate_to: "{{ openshift_install_host }}"
+
+  - name: Generate Ignition Configs
+    shell: |
+      openshift-install --dir=/tmp/ocp4-install-{{ cluster_name }} create ignition-configs 
+    delegate_to: "{{ openshift_install_host }}"
+
+  - name: Slurp Ignition Configs
+    slurp:
+      src: "/tmp/ocp4-install-{{ cluster_name }}/{{ item }}.ign"
+    loop:
+      - bootstrap
+      - master
+      - worker
+    register: ignconf
+    delegate_to: "{{ openshift_install_host }}"
+
+  - name: Slurp kubeconfig
+    slurp:
+      src: "/tmp/ocp4-install-{{ cluster_name }}/auth/kubeconfig"
+    register: kubeconf
+    delegate_to: "{{ openshift_install_host }}"
+
+  - name: Prepare kubeconfig on Openshift Install host
+    file:
+      path: "/root/.kube"
+      state: directory
+    delegate_to: "{{ openshift_install_host }}"
+
+  - name: Place kubeconfig on Openshift Install host
+    copy:
+      content: "{{ kubeconf['content'] | b64decode }}"
+      dest: "/root/.kube/config"
+    delegate_to: "{{ openshift_install_host }}"
+
+  - name: Create local OpenShift Installation directory
+    file:
+      path: "/var/lib/matchbox/{{ item }}"
+      state: directory
+    loop:
+      - ignition
+
+  - name: Place Ignition YAML Configs on Matchbox using APPEND
+    template:
+      src: "ignition-template.yaml.j2"
+      dest: "/var/lib/matchbox/ignition/{{ item.item }}.yaml"    
+    loop: "{{ ignconf.results }}"
+    no_log: True
+
+##########
+
+- name: Prepare OpenShift 4 UPI Hosts
+  hosts: localhost
+  gather_facts: no
+  vars:
+    esxi_hostname: "{{ vc_hostname }}"
+    esxi_username: "{{ vc_username }}"
+    esxi_password: "{{ vc_password }}"
+    esxi_datacenter: "{{ vc_datacenter }}"
+    esxi_cluster: "{{ vc_cluster }}"
+    vmstate: present
+  tasks:
+  - name: Include ignition cluster vars
+    include_vars:
+      file: "vars/cluster_ignition_{{ clustertype | default('bm') }}.yml"
+
+  - name: Create vCenter folder for cluster
+    vmware_resource_pool:
+      validate_certs: no
+      hostname: "{{ esxi_hostname }}"
+      username: "{{ esxi_username }}"
+      password: "{{ esxi_password }}"
+      datacenter: "{{ esxi_datacenter | default('ha-datacenter') }}"
+      cluster: "{{ esxi_cluster }}"
+      resource_pool: "{{ cluster_name }}"
+      state: present
+    when: vmstate is defined and vmstate != 'absent'
+
+  - name: BOOTSTRAP Provision VMware Instances
+    async: 7200
+    poll: 0
+    vmware_guest:
+      validate_certs: no
+      hostname: "{{ esxi_hostname }}"
+      username: "{{ esxi_username }}"
+      password: "{{ esxi_password }}"
+      esxi_hostname: "{{ esxi_target_hostname | default(esxi_hostname) }}"
+      datacenter: "{{ esxi_datacenter | default('ha-datacenter') }}"
+      name: "{{ cluster_name }}-{{ pref_bootstrap }}-{{ item.index }}"
+      folder: "/{{ esxi_datacenter | default('ha-datacenter') }}/{{ esxi_folder | default('vm') }}"
+      resource_pool: "{{ cluster_name }}"
+      disk: 
+      - size_gb: 60
+        type: thin
+        datastore: "{{ esxi_datastore }}"
+      networks:
+      - device_type: vmxnet3
+        name: "{{ esxi_net | default('VM Network') }}"
+        mac: "{{ item.mac }}"
+        ip: "{{ item. ip }}"
+        netmask: "{{ ign_net_mask }}"
+        gateway: "{{ ign_net_gw }}"
+        dns_servers:
+          - "{{ ign_net_dns }}"
+      guest_id: "{{ esxi_guestid | default('centos64Guest') }}"
+      hardware:
+        memory_mb: "{{ hostvars[item]['memory'] | default('8096') }}"
+        num_cpus: "{{ hostvars[item]['cpu'] | default('4') }}"
+        scsi: paravirtual
+        hotadd_memory: True
+      state: "{{ vmstate | default('poweredon') }}"
+      force: yes
+    register: vms
+    loop: "{{ hosts_bootstrap }}"
+
+  - name: BOOTSTRAP Wait for instance launch completion
+    async_status: jid="{{ item.ansible_job_id }}"
+    register: vms_jobs
+    until: vms_jobs.finished
+    retries: 300
+    loop: "{{ vms.results }}"
+
+  - name: MASTER Provision VMware Instances
+    async: 7200
+    poll: 0
+    vmware_guest:
+      validate_certs: no
+      hostname: "{{ esxi_hostname }}"
+      username: "{{ esxi_username }}"
+      password: "{{ esxi_password }}"
+      esxi_hostname: "{{ esxi_target_hostname | default(esxi_hostname) }}"
+      datacenter: "{{ esxi_datacenter | default('ha-datacenter') }}"
+      name: "{{ cluster_name }}-{{ pref_control_plane }}-{{ item.index }}"
+      resource_pool: "{{ cluster_name }}"
+      folder: "/{{ esxi_datacenter | default('ha-datacenter') }}/{{ esxi_folder | default('vm') }}"
+      disk:
+      - size_gb: 60
+        type: thin
+        datastore: "{{ esxi_datastore }}"
+      networks:
+      - device_type: vmxnet3
+        name: "{{ esxi_net | default('VM Network') }}"
+        mac: "{{ item.mac }}"
+        ip: "{{ item. ip }}"
+        netmask: "{{ ign_net_mask }}"
+        gateway: "{{ ign_net_gw }}"
+        dns_servers:
+          - "{{ ign_net_dns }}"
+      guest_id: "{{ esxi_guestid | default('centos64Guest') }}"
+      hardware:
+        memory_mb: "{{ hostvars[item]['memory'] | default('8096') }}"
+        num_cpus: "{{ hostvars[item]['cpu'] | default('4') }}"
+        scsi: paravirtual
+        hotadd_memory: True
+      state: "{{ vmstate | default('poweredon') }}"
+      force: yes
+    register: vms
+    loop: "{{ hosts_control_plane }}"
+
+  - name: MASTER Wait for instance launch completion
+    async_status: jid="{{ item.ansible_job_id }}"
+    register: vms_jobs
+    until: vms_jobs.finished
+    retries: 300
+    loop: "{{ vms.results }}"
+
+  - name: WORKER Provision VMware Instances
+    async: 7200
+    poll: 0
+    vmware_guest:
+      validate_certs: no
+      hostname: "{{ esxi_hostname }}"
+      username: "{{ esxi_username }}"
+      password: "{{ esxi_password }}"
+      esxi_hostname: "{{ esxi_target_hostname | default(esxi_hostname) }}"
+      datacenter: "{{ esxi_datacenter | default('ha-datacenter') }}"
+      name: "{{ cluster_name }}-{{ pref_compute }}-{{ item.index }}"
+      resource_pool: "{{ cluster_name }}"
+      folder: "/{{ esxi_datacenter | default('ha-datacenter') }}/{{ esxi_folder | default('vm') }}"
+      disk:
+      - size_gb: 60
+        type: thin
+        datastore: "{{ esxi_datastore }}"
+      networks:
+      - device_type: vmxnet3
+        name: "{{ esxi_net | default('VM Network') }}"
+        mac: "{{ item.mac }}"
+        ip: "{{ item. ip }}"
+        netmask: "{{ ign_net_mask }}"
+        gateway: "{{ ign_net_gw }}"
+        dns_servers:
+          - "{{ ign_net_dns }}"
+      guest_id: "{{ esxi_guestid | default('centos64Guest') }}"
+      hardware:
+        memory_mb: "{{ hostvars[item]['memory'] | default('8096') }}"
+        num_cpus: "{{ hostvars[item]['cpu'] | default('4') }}"
+        scsi: paravirtual
+        hotadd_memory: True
+      state: "{{ vmstate | default('poweredon') }}"
+      force: yes
+    register: vms_compute
+    loop: "{{ hosts_compute }}"
+
+  - name: WORKER Wait for instance launch completion
+    async_status: jid="{{ item.ansible_job_id }}"
+    register: vms_jobs
+    until: vms_jobs.finished
+    retries: 300
+    loop: "{{ vms_compute.results }}"
+
+  - name: Remove vCenter folder for cluster
+    vmware_resource_pool:
+      validate_certs: no
+      hostname: "{{ esxi_hostname }}"
+      username: "{{ esxi_username }}"
+      password: "{{ esxi_password }}"
+      datacenter: "{{ esxi_datacenter | default('ha-datacenter') }}"
+      cluster: "{{ esxi_cluster }}"
+      resource_pool: "{{ cluster_name }}"
+      state: absent
+    when: vmstate is defined and vmstate == 'absent'

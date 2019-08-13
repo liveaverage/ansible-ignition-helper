@@ -1,0 +1,49 @@
+cluster_name: dev
+domain: shifti.us
+base_domain: int.shifti.us
+
+hosts_loadbalancer:
+  - ip: 192.168.1.81
+    index: 0
+hosts_bootstrap:
+  - ip: 192.168.1.94
+    index: 0
+hosts_control_plane:
+  - ip: 192.168.1.95
+    index: 0
+  - ip: 192.168.1.96
+    index: 1
+  - ip: 192.168.1.97
+    index: 2
+hosts_compute:
+  - ip: 192.168.1.98
+    index: 0
+  - ip: 192.168.1.99
+    index: 1
+
+dns_state: present
+ign_net_mask: 255.255.255.0
+ign_net_gw: 192.168.1.1
+ign_net_dns: 192.168.1.1
+ign_profile_initrd: '/assets/rhcos-4.1.0-x86_64-installer-initramfs.img'
+ign_profile_kernel: '/assets/rhcos-4.1.0-x86_64-installer-kernel'
+ign_image: 'http://cobbler.gxr.me:8080/assets/rhcos-4.1.0-x86_64-metal-bios.raw.gz'
+ign_url: 'http://cobbler.gxr.me:8080/ignition?mac=${mac:hexhyp}'
+
+lb_port_api: 6444
+lb_port_machineconfig: 22624
+lb_port_apps_http: 9080
+lb_port_apps_https: 9443
+
+openshift_install_host: localhost
+
+esxi_username: "{{ lookup('env', 'VMWARE_USER') }}"
+esxi_password: "{{ lookup('env', 'VMWARE_PASSWORD') }}"
+esxi_hostname: "vcsa.gxr.me"
+esxi_net: "VM Network"
+esxi_target_hostname: "esx2.gxr.me"
+esxi_datacenter: "GXR"
+esxi_datastore: "esx2_vms_nvme1"
+
+sshkey: "{{ lookup('file', '~/.ssh/id_rsa.pub') }}"
+pullsecret: "inserthere"

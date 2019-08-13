@@ -1,0 +1,35 @@
+#jinja2:lstrip_blocks: True
+
+backend ocp4-kubernetes-api-server-{{ cluster_name }}
+	mode tcp
+	balance source
+	{% for h in hosts_bootstrap %}
+	server {{ pref_bootstrap }}-{{ h.index }} {{ pref_bootstrap }}-{{ h.index }}.{{ cluster_name }}.{{ base_domain }}:6443 check
+	{% endfor %}
+	{% for h in hosts_control_plane %}
+	server {{ pref_control_plane }}-{{ h.index }} {{ pref_control_plane }}-{{ h.index }}.{{ cluster_name }}.{{ base_domain }}:6443 check
+	{% endfor %}
+
+backend ocp4-machine-config-server-{{ cluster_name }}
+	mode tcp
+	balance source
+        {% for h in hosts_bootstrap %}
+	server {{ pref_bootstrap }}-{{ h.index }} {{ pref_bootstrap }}-{{ h.index }}.{{ cluster_name }}.{{ base_domain }}:22623 check
+	{% endfor %}
+        {% for h in hosts_control_plane %}
+	server {{ pref_control_plane }}-{{ h.index }} {{ pref_control_plane }}-{{ h.index }}.{{ cluster_name }}.{{ base_domain }}:22623 check
+	{% endfor %}
+
+backend ocp4-router-http-{{ cluster_name }}
+	mode tcp
+        {% for h in hosts_compute %}
+	server {{ pref_compute }}-{{ h.index }} {{ pref_compute }}-{{ h.index }}.{{ cluster_name }}.{{ base_domain }}:80 check
+	{% endfor %}
+
+backend ocp4-router-https-{{ cluster_name }}
+	mode tcp
+        {% for h in hosts_compute %}
+	server {{ pref_compute }}-{{ h.index }} {{ pref_compute }}-{{ h.index }}.{{ cluster_name }}.{{ base_domain }}:443 check
+	{% endfor %}
+
+

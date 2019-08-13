@@ -1,0 +1,105 @@
+---
+- name: Prepare OpenShift 4 DNS using CloudFlare
+  hosts: localhost
+  gather_facts: no
+  tasks:
+
+  - name: Include ignition cluster vars
+    include_vars:
+      file: "vars/cluster_ignition_{{ clustertype | default('bm') }}.yml"
+
+### Maybe consider a letsencrypt call:
+###   certbot certonly --dns-cloudflare --dns-cloudflare-credentials /etc/letsencrypt/.cfa -d bm.int.shifti.us,*.apps.bm.shifti.us --preferred-challenges dns-01
+
+  - name: Configure control-plane records
+    cloudflare_dns:
+      account_api_token: "{{ cloudflare_account_token }}"
+      account_email: "{{ cloudflare_email }}"
+      zone: "{{ domain }}"
+      type: A
+      record: "{{ pref_bootstrap }}-{{ item.index }}.{{ cluster_name }}.{{ base_domain }}"
+      value: "{{ item.ip }}"
+      state: "{{ dns_state }}"
+    loop: "{{ hosts_bootstrap }}"
+
+  - name: Configure control-plane records
+    cloudflare_dns:
+      account_api_token: "{{ cloudflare_account_token }}"
+      account_email: "{{ cloudflare_email }}"
+      zone: "{{ domain }}"
+      type: A
+      record: "{{ pref_control_plane }}-{{ item.index }}.{{ cluster_name }}.{{ base_domain }}"
+      value: "{{ item.ip }}"
+      state: "{{ dns_state }}"
+    loop: "{{ hosts_control_plane }}"
+
+  - name: Configure etcd records
+    cloudflare_dns:
+      account_api_token: "{{ cloudflare_account_token }}"
+      account_email: "{{ cloudflare_email }}"
+      zone: "{{ domain }}"
+      type: A
+      record: "etcd-{{ item.index }}.{{ cluster_name }}.{{ base_domain }}"
+      value: "{{ item.ip }}"
+      state: "{{ dns_state }}"
+    loop: "{{ hosts_control_plane }}"
+
+  - name: Configure etcd SRV records
+    cloudflare_dns:
+      account_api_token: "{{ cloudflare_account_token }}"
+      account_email: "{{ cloudflare_email }}"
+      zone: "{{ domain }}"
+      type: SRV
+      record: "{{ cluster_name }}.{{ base_domain }}"
+      service: "_etcd-server-ssl"
+      weight: 10
+      priority: 0
+      port: 2380
+      proto: tcp
+      value: "etcd-{{ item.index }}.{{ cluster_name }}.{{ base_domain }}"
+      state: "{{ dns_state }}"
+    loop: "{{ hosts_control_plane }}"
+
+  - name: Configure API records
+    cloudflare_dns:
+      account_api_token: "{{ cloudflare_account_token }}"
+      account_email: "{{ cloudflare_email }}"
+      zone: "{{ domain }}"
+      type: A
+      record: "api.{{ cluster_name }}.{{ base_domain }}"
+      value: "{{ item.ip }}"
+      state: "{{ dns_state }}"
+    loop: "{{ hosts_loadbalancer }}"
+
+  - name: Configure API (internal) records
+    cloudflare_dns:
+      account_api_token: "{{ cloudflare_account_token }}"
+      account_email: "{{ cloudflare_email }}"
+      zone: "{{ domain }}"
+      type: A
+      record: "api-int.{{ cluster_name }}.{{ base_domain }}"
+      value: "{{ item.ip }}"
+      state: "{{ dns_state }}"
+    loop: "{{ hosts_loadbalancer }}"
+
+  - name: Configure compute records
+    cloudflare_dns:
+      account_api_token: "{{ cloudflare_account_token }}"
+      account_email: "{{ cloudflare_email }}"
+      zone: "{{ domain }}"
+      type: A
+      record: "{{ pref_compute }}-{{ item.index }}.{{ cluster_name }}.{{ base_domain }}"
+      value: "{{ item.ip }}"
+      state: "{{ dns_state }}"
+    loop: "{{ hosts_compute }}"
+
+  - name: Configure round-robin wildcard apps subdomain records
+    cloudflare_dns:
+      account_api_token: "{{ cloudflare_account_token }}"
+      account_email: "{{ cloudflare_email }}"
+      zone: "{{ domain }}"
+      type: A
+      record: "*.apps.{{ cluster_name }}.{{ base_domain }}"
+      value: "{{ item.ip }}"
+      state: "{{ dns_state }}"
+    loop: "{{ hosts_compute }}"

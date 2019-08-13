@@ -1,0 +1,16 @@
+{
+"id": "bootstrap-{{ item.index }}",
+"name": "OCP4-bootstrap-{{ item.index }}",
+"profile": "bootstrap",
+"selector": {
+  "mac": "{{ item.mac }}"
+  },
+"metadata": {
+  "hostname": "bootstrap-{{ item.index }}.{{ cluster_name }}.{{ base_domain }}",
+  "ip_add": "{{ item.ip }}",
+  "ip_mask": "{{ ign_net_prefix }}",
+  "ip_gw": "{{ ign_net_gw }}",
+  "ip_dns": "{{ ign_net_dns }}",
+  "ip_domain": "{{ base_domain }}"
+  }
+}
